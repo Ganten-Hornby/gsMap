@@ -1160,6 +1160,164 @@ class SpatialLDSCConfig(ConfigWithAutoPaths):
 
 
 @dataclass
+class SpatialLDSCRgConfig(ConfigWithAutoPaths):
+    """Configuration for Spatial LDSC Genetic Correlation analysis."""
+    trait1_sumstats: str
+    trait2_sumstats: str
+    trait1_name: str
+    trait2_name: str
+    w_file: str | None = None
+    use_additional_baseline_annotation: bool = True
+    num_processes: int = 4
+    not_M_5_50: bool = False
+    n_blocks: int = 200
+    chisq_max: int | None = None
+    all_chunk: int | None = None
+    ldscore_save_format: Literal["feather", "zarr", "quick_mode"] = "feather"
+    chunk_range: tuple[int, int] | None = None
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Verify the existence of summary statistics files
+        if not Path(self.trait1_sumstats).exists():
+            raise FileNotFoundError(f"Summary statistics file for trait 1 not found: {self.trait1_sumstats}")
+
+        if not Path(self.trait2_sumstats).exists():
+            raise FileNotFoundError(f"Summary statistics file for trait 2 not found: {self.trait2_sumstats}")
+
+        # Handle w_file
+        if self.w_file is None:
+            w_ld_dir = Path(self.ldscore_save_dir) / "w_ld"
+            if w_ld_dir.exists():
+                self.w_file = str(w_ld_dir / "weights.")
+                logger.info(f"Using weights generated in the generate_ldscore step: {self.w_file}")
+            else:
+                raise ValueError(
+                    "No w_file provided and no weights found in generate_ldscore output. "
+                    "Either provide --w_file or run generate_ldscore first."
+                )
+        else:
+            logger.info(f"Using provided weights file: {self.w_file}")
+
+        if self.use_additional_baseline_annotation:
+            self.process_additional_baseline_annotation()
+
+    @property
+    @ensure_path_exists
+    def rg_save_dir(self) -> Path:
+        """Path to save genetic correlation results."""
+        return Path(f"{self.workdir}/{self.sample_name}/spatial_ldsc_rg")
+
+    def process_additional_baseline_annotation(self):
+        additional_baseline_annotation = Path(self.ldscore_save_dir) / "additional_baseline"
+        dir_exists = additional_baseline_annotation.exists()
+
+        if not dir_exists:
+            self.use_additional_baseline_annotation = False
+        else:
+            logger.info(
+                "------Additional baseline annotation is provided. It will be used with the default baseline annotation."
+            )
+            logger.info(
+                f"------Additional baseline annotation directory: {additional_baseline_annotation}"
+            )
+
+            chrom_list = range(1, 23)
+            for chrom in chrom_list:
+                baseline_annotation_path = (
+                        additional_baseline_annotation / f"baseline.{chrom}.l2.ldscore.feather"
+                )
+                if not baseline_annotation_path.exists():
+                    raise FileNotFoundError(
+                        f"baseline.{chrom}.l2.ldscore.feather is not found in {additional_baseline_annotation}."
+                    )
+        return None
+
+def add_spatial_ldsc_rg_args(parser):
+    """Add command-line arguments for spatial_ldsc_rg."""
+    add_shared_args(parser)
+    parser.add_argument(
+        "--trait1_sumstats",
+        type=str,
+        required=True,
+        help="Path to GWAS summary statistics for trait 1."
+    )
+    parser.add_argument(
+        "--trait2_sumstats",
+        type=str,
+        required=True,
+        help="Path to GWAS summary statistics for trait 2."
+    )
+    parser.add_argument(
+        "--trait1_name",
+        type=str,
+        required=True,
+        help="Name of trait 1."
+    )
+    parser.add_argument(
+        "--trait2_name",
+        type=str,
+        required=True,
+        help="Name of trait 2."
+    )
+    parser.add_argument(
+        "--w_file",
+        type=str,
+        required=False,
+        default=None,
+        help="Path to regression weight file. If not provided, will use weights generated in the generate_ldscore step.",
+    )
+    parser.add_argument(
+        "--n_blocks",
+        type=int,
+        default=200,
+        help="Number of blocks for jackknife resampling."
+    )
+    parser.add_argument(
+        "--chisq_max",
+        type=int,
+        help="Maximum chi-square value for filtering SNPs."
+    )
+    parser.add_argument(
+        "--num_processes",
+        type=int,
+        default=4,
+        help="Number of processes for parallel computing."
+    )
+    parser.add_argument(
+        "--use_additional_baseline_annotation",
+        type=bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help="Use additional baseline annotations when provided",
+    )
+    parser.add_argument(
+        "--all_chunk",
+        type=int,
+        default=None,
+        help="Number of chunks to process."
+    )
+    parser.add_argument(
+        "--chunk_range",
+        type=lambda x: tuple(map(int, x.split(','))),
+        default=None,
+        help="Range of chunks to process, format: start,end",
+    )
+
+@register_cli(
+    name="run_spatial_ldsc_rg",
+    description="Run Spatial LDSC Genetic Correlation analysis",
+    add_args_function=add_spatial_ldsc_rg_args,
+)
+def run_spatial_ldsc_rg_from_cli(args: argparse.Namespace):
+    from gsMap.spatial_ldsc_rg import run_spatial_ldsc_rg
+
+    config = get_dataclass_from_parser(args, SpatialLDSCRgConfig)
+    run_spatial_ldsc_rg(config)
+
+@dataclass
 class CauchyCombinationConfig(ConfigWithAutoPaths):
     trait_name: str
     annotation: str
