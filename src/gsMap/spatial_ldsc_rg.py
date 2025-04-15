@@ -33,7 +33,7 @@ def filter_sumstats_by_chisq(sumstats, chisq_max):
         chisq_max = max(0.001 * sumstats.N.max(), 80)
         logger.info(f"No chi^2 threshold provided, using {chisq_max} as default")
 
-    sumstats["chisq"] = sumstats.Z**2
+    sumstats["chisq"] = sumstats.Z ** 2
     sumstats = sumstats[sumstats.chisq < chisq_max]
     after_len = len(sumstats)
 
@@ -142,7 +142,7 @@ def estimate_global_genetic_parameters(merged_sumstats, M_estimate, n_blocks=200
         N=s(merged_sumstats.N1),
         M=M,
         n_blocks=n_blocks,
-        twostep = twostep,
+        twostep=twostep,
     )
 
     # Estimate h2 using LDSC
@@ -208,17 +208,9 @@ def estimate_global_genetic_parameters(merged_sumstats, M_estimate, n_blocks=200
     }
 
 
-def compute_local_genetic_correlation(
-    spot_id,
-    spatial_annotation,
-    ref_ld_baseline_column_sum,
-    merged_sumstats,
-    w_ld,
-    global_parameters,
-    n_blocks,
-    old_weights=True,
-    twostep=None
-):
+def compute_local_genetic_correlation(spot_id, spatial_annotation, ref_ld_baseline, merged_sumstats, w_ld,
+                                      global_parameters, n_blocks, M_spatial, M_baseline, old_weights=True,
+                                      twostep=None, ):
     """
     Compute local genetic correlation for a single spot.
 
@@ -228,7 +220,7 @@ def compute_local_genetic_correlation(
         Spot index
     spatial_annotation : np.ndarray
         Spatial annotation values
-    ref_ld_baseline_column_sum : np.ndarray
+    ref_ld_baseline : np.ndarray
         Sum of baseline LD scores
     merged_sumstats : pd.DataFrame
         Merged summary statistics
@@ -247,28 +239,22 @@ def compute_local_genetic_correlation(
     # Get spatial annotation for this spot
     spot_spatial_annotation = spatial_annotation[:, spot_id]
 
-    # Combine spatial and baseline annotations
-    spot_ld_scores = spot_spatial_annotation + ref_ld_baseline_column_sum
-
-    # Create combined annotation matrix
-    M = np.array([[float(len(spot_ld_scores))]])  # Use SNP count as M
-
     # Convert to column vectors
     s = lambda x: np.array(x).reshape((-1, 1))
-
     n_snp = len(merged_sumstats)
-
-    #%% TODO In the origianl rg impolementation, constrain the intercept to be 1 of hsq and intercept_genecov to be 0
+    x = np.concatenate((s(spot_spatial_annotation), ref_ld_baseline), axis=1)
+    M_spot= np.concatenate((M_spatial[:,spot_id:spot_id+1], M_baseline), axis=1)
+    # %% TODO In the origianl rg impolementation, constrain the intercept to be 1 of hsq and intercept_genecov to be 0
     try:
         # First compute local h2 for trait 1
         hsq1 = Hsq(
             y=np.square(s(merged_sumstats.Z1)),
-            x=s(spot_ld_scores),
+            x=x,
             w=s(w_ld.LD_weights),
             N=s(merged_sumstats.N1),
-            M=M,
+            M=M_spot,
             n_blocks=n_blocks,
-            intercept=global_parameters["hsq1_intercept"],
+            intercept=None,
             twostep=twostep,
             old_weights=old_weights
         )
@@ -276,12 +262,12 @@ def compute_local_genetic_correlation(
         # Then compute local h2 for trait 2
         hsq2 = Hsq(
             y=np.square(s(merged_sumstats.Z2)),
-            x=s(spot_ld_scores),
+            x=x,
             w=s(w_ld.LD_weights),
             N=s(merged_sumstats.N2),
-            M=M,
+            M=M_spot,
             n_blocks=n_blocks,
-            intercept=global_parameters["hsq2_intercept"],
+            intercept=None,
             twostep=twostep,
             old_weights=old_weights
         )
@@ -290,38 +276,38 @@ def compute_local_genetic_correlation(
         gencov = Gencov(
             z1=s(merged_sumstats.Z1),
             z2=s(merged_sumstats.Z2),
-            x=s(spot_ld_scores),
+            x=x,
             w=s(w_ld.LD_weights),
             N1=s(merged_sumstats.N1),
             N2=s(merged_sumstats.N2),
-            M=M,
+            M=M_spot,
             hsq1=hsq1.tot,
             hsq2=hsq2.tot,
             intercept_hsq1=hsq1.intercept,
             intercept_hsq2=hsq2.intercept,
             n_blocks=n_blocks,
-            intercept_gencov=global_parameters["gcov_intercept"],
+            intercept_gencov=None,
             twostep=twostep,
         )
 
-        # Calculate local genetic correlation
-        if hsq1.tot <= 0 or hsq2.tot <= 0:
-            local_rg = np.nan
-            local_rg_se = np.nan
-            local_rg_z = np.nan
-            local_rg_p = np.nan
-        else:
-            local_rg = gencov.tot / np.sqrt(hsq1.tot * hsq2.tot)
-
-            # Use ratio jackknife to get rg standard error
-            local_rg_jknife = jk.RatioJackknife(
-                np.array(local_rg).reshape((1, 1)),
-                gencov.tot_delete_values,
-                np.sqrt(np.multiply(hsq1.tot_delete_values, hsq2.tot_delete_values))
-            )
-
-            local_rg_se = float(local_rg_jknife.jknife_se)
-            local_rg_p, local_rg_z = p_z_norm(local_rg, local_rg_se)
+        # # Calculate local genetic correlation
+        # if hsq1.tot <= 0 or hsq2.tot <= 0:
+        #     local_rg = np.nan
+        #     local_rg_se = np.nan
+        #     local_rg_z = np.nan
+        #     local_rg_p = np.nan
+        # else:
+        #     local_rg = gencov.tot / np.sqrt(hsq1.tot * hsq2.tot)
+        #
+        #     # Use ratio jackknife to get rg standard error
+        #     local_rg_jknife = jk.RatioJackknife(
+        #         np.array(local_rg).reshape((1, 1)),
+        #         gencov.tot_delete_values,
+        #         np.sqrt(np.multiply(hsq1.tot_delete_values, hsq2.tot_delete_values))
+        #     )
+        #
+        #     local_rg_se = float(local_rg_jknife.jknife_se)
+        #     local_rg_p, local_rg_z = p_z_norm(local_rg, local_rg_se)
 
         return {
             "h1_beta": float(hsq1.tot),
@@ -330,11 +316,13 @@ def compute_local_genetic_correlation(
             "h2_se": float(hsq2.tot_se),
             "gcov_beta": float(gencov.tot),
             "gcov_se": float(gencov.tot_se),
-            "rg_beta": float(local_rg) if not np.isnan(local_rg) else np.nan,
-            "rg_se": float(local_rg_se) if not np.isnan(local_rg_se) else np.nan,
-            "rg_z": float(local_rg_z) if not np.isnan(local_rg_z) else np.nan,
-            "rg_p": float(local_rg_p) if not np.isnan(local_rg_p) else np.nan
+            "gcov_p": float(gencov.p),
+            # "rg_beta": float(local_rg) if not np.isnan(local_rg) else np.nan,
+            # "rg_se": float(local_rg_se) if not np.isnan(local_rg_se) else np.nan,
+            # "rg_z": float(local_rg_z) if not np.isnan(local_rg_z) else np.nan,
+            # "rg_p": float(local_rg_p) if not np.isnan(local_rg_p) else np.nan
         }
+
     except Exception as e:
         logger.warning(f"Error estimating local genetic correlation for spot {spot_id}: {e}")
         return {
@@ -384,7 +372,7 @@ def determine_chunk_range(config, total_chunk_number_found):
     if config.all_chunk is None:
         if config.chunk_range is not None:
             if not (1 <= config.chunk_range[0] <= total_chunk_number_found) or not (
-                1 <= config.chunk_range[1] <= total_chunk_number_found
+                    1 <= config.chunk_range[1] <= total_chunk_number_found
             ):
                 raise ValueError("Chunk range out of bound. It should be in [1, all_chunk]")
             start_chunk, end_chunk = config.chunk_range
@@ -408,7 +396,8 @@ def load_ldscore_chunk_from_feather(chunk_index, common_snp_among_all_sumstats_p
     ref_ld_spatial = ref_ld_spatial.iloc[common_snp_among_all_sumstats_pos]
     ref_ld_spatial = ref_ld_spatial.astype(np.float32, copy=False)
     spatial_annotation_cnames = ref_ld_spatial.columns
-    return ref_ld_spatial.values, spatial_annotation_cnames
+    M_ref_ld_spatial = _read_M_v2(ld_file_spatial, len(spatial_annotation_cnames), False)
+    return ref_ld_spatial.values, spatial_annotation_cnames, M_ref_ld_spatial
 
 
 def load_ldscore_chunk_from_zarr(chunk_index, common_snp_among_all_sumstats_pos, zarr_file, spots_name):
@@ -416,17 +405,18 @@ def load_ldscore_chunk_from_zarr(chunk_index, common_snp_among_all_sumstats_pos,
     ref_ld_spatial = zarr_file.blocks[:, chunk_index - 1][common_snp_among_all_sumstats_pos]
     start_spot = (chunk_index - 1) * zarr_file.chunks[1]
     ref_ld_spatial = ref_ld_spatial.astype(np.float32, copy=False)
-    spatial_annotation_cnames = spots_name[start_spot : start_spot + zarr_file.chunks[1]]
+    spatial_annotation_cnames = spots_name[start_spot: start_spot + zarr_file.chunks[1]]
     return ref_ld_spatial, spatial_annotation_cnames
 
 
 def load_ldscore_chunk(
-    chunk_index,
-    common_snp_among_all_sumstats_pos,
-    config,
-    zarr_file=None,
-    spots_name=None
+        chunk_index,
+        common_snp_among_all_sumstats_pos,
+        config,
+        zarr_file=None,
+        spots_name=None
 ):
+    assert config.ldscore_save_format == "feather", 'Only support feather in rg analysis'
     """Load LD score chunk based on save format."""
     if config.ldscore_save_format == "feather":
         return load_ldscore_chunk_from_feather(
@@ -502,50 +492,28 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
 
     # Estimate global genetic parameters
     logger.info("Estimating global genetic parameters...")
-    try:
-        # Determine global M_w_ld
-        M_w_ld = _read_M_v2(ld_file_baseline, 2, False)
-        M_base = M_w_ld[0, 1]
-        merged_sumstats['LD_weights'] = w_ld.LD_weights
-        merged_sumstats['LD_score'] = ref_ld_baseline['base']
+    # Determine global M_w_ld
+    M_w_ld = _read_M_v2(ld_file_baseline, 2, False)
+    M_base = M_w_ld[0, 1]
+    merged_sumstats['LD_weights'] = w_ld.LD_weights
+    merged_sumstats['LD_score'] = ref_ld_baseline['base']
 
-        global_params = estimate_global_genetic_parameters(
-            merged_sumstats, M_base, n_blocks
-        )
+    global_params = estimate_global_genetic_parameters(
+        merged_sumstats, M_base, n_blocks
+    )
 
-        logger.info(f"Trait 1 ('{config.trait1_name}') h²: {global_params['hsq1_tot']:.4f} (SE: {global_params['hsq1_se']:.4f}, intercept: {global_params['hsq1_intercept']:.4f})")
-        logger.info(f"Trait 2 ('{config.trait2_name}') h²: {global_params['hsq2_tot']:.4f} (SE: {global_params['hsq2_se']:.4f}, intercept: {global_params['hsq2_intercept']:.4f})")
-        logger.info(f"Genetic correlation: {global_params['rg']:.4f} (SE: {global_params['rg_se']:.4f}, p: {global_params['rg_p']:.4e})")
+    logger.info(
+        f"Trait 1 ('{config.trait1_name}') h²: {global_params['hsq1_tot']:.4f} (SE: {global_params['hsq1_se']:.4f}, intercept: {global_params['hsq1_intercept']:.4f})")
+    logger.info(
+        f"Trait 2 ('{config.trait2_name}') h²: {global_params['hsq2_tot']:.4f} (SE: {global_params['hsq2_se']:.4f}, intercept: {global_params['hsq2_intercept']:.4f})")
+    logger.info(
+        f"Genetic correlation: {global_params['rg']:.4f} (SE: {global_params['rg_se']:.4f}, p: {global_params['rg_p']:.4e})")
 
-        if global_params['rg_p'] > 0.05:
-            logger.warning("WARNING: The global genetic correlation is not statistically significant (p > 0.05)")
+    if global_params['rg_p'] > 0.05:
+        logger.warning("WARNING: The global genetic correlation is not statistically significant (p > 0.05)")
 
-        if abs(global_params['rg']) < 0.01:
-            logger.warning("WARNING: The global genetic correlation is very close to zero.")
-
-    except Exception as e:
-        logger.error(f"Error estimating global genetic parameters: {e}")
-        logger.warning("Proceeding with default values for genetic parameters")
-        global_params = {
-            "hsq1_tot": 0.1,
-            "hsq1_intercept": 1.0,
-            "hsq1_se": 0.05,
-            "hsq2_tot": 0.1,
-            "hsq2_intercept": 1.0,
-            "hsq2_se": 0.05,
-            "gcov_tot": 0.0,
-            "gcov_intercept": 0.0,
-            "gcov_se": 0.05,
-            "rg": 0.0,
-            "rg_se": 0.1,
-            "rg_p": 0.5,
-            "rg_z": 0.0,
-            "mean_chisq1": 1.0,
-            "mean_chisq2": 1.0,
-            "lambda_gc1": 1.0,
-            "lambda_gc2": 1.0,
-            "mean_z1z2": 0.0
-        }
+    if abs(global_params['rg']) < 0.01:
+        logger.warning("WARNING: The global genetic correlation is very close to zero.")
 
     # Save global genetic parameters
     output_dir = Path(config.rg_save_dir)
@@ -563,7 +531,6 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
         zarr_file = zarr.open(str(zarr_path))
         spots_name = zarr_file.attrs["spot_names"]
 
-
     # Use the refactored functions to determine chunks
     total_chunk_number_found = determine_total_chunks(config)
     start_chunk, end_chunk = determine_chunk_range(config, total_chunk_number_found)
@@ -578,7 +545,7 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
         logger.info(f"Processing chunk {chunk_index} of {running_chunk_number}")
 
         # Load spatial LD scores for this chunk using the refactored function
-        ref_ld_spatial, spatial_annotation_cnames = load_ldscore_chunk(
+        ref_ld_spatial, spatial_annotation_cnames, M_ref_ld_spatial = load_ldscore_chunk(
             chunk_index,
             common_snp_among_all_sumstats_pos,
             config,
@@ -595,11 +562,14 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
             local_results = compute_local_genetic_correlation(
                 spot_id,
                 ref_ld_spatial,
-                ref_ld_baseline_column_sum,
+                ref_ld_baseline,
                 merged_sumstats,
+
                 w_ld,
                 global_params,
-                n_blocks
+                n_blocks,
+                M_spatial= M_ref_ld_spatial,
+                M_baseline=M_w_ld,
             )
 
             # Add spot name to results
@@ -630,28 +600,29 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
 
     logger.info(f"------Spatial LDSC Genetic Correlation for {sample_name} finished!")
 
+
 if __name__ == "__main__":
-    sumstats_file1= '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/DIAMANTE_EUR_T2D_2022_NG.sumstats.gz'
-    sumstats_file2= '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/BMI-GIANT_2018_cojo.sumstats.gz'
+    sumstats_file1 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/DIAMANTE_EUR_T2D_2022_NG.sumstats.gz'
+    sumstats_file2 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/BMI-GIANT_2018_cojo.sumstats.gz'
     sumstats_file1 = trait1 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/PGC3_SCZ_wave3_public_INFO80.sumstats.gz'
-    sumstats_file2=trait2 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/PGC_Bipolar_INFO80_2021_NatGenet.sumstats.gz'
+    sumstats_file2 = trait2 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/PGC_Bipolar_INFO80_2021_NatGenet.sumstats.gz'
 
     trait1_name = 'T2D'
     trait2_name = 'BMI'
 
-    config = SpatialLDSCRgConfig(**{   'all_chunk': None,
-    'chisq_max': None,
-    'chunk_range': None,
-    'n_blocks': 200,
-    'num_processes': 2,
-    'sample_name': 'E16.5_E1S1.MOSTA',
-    'trait1_name': trait1_name,
-    'trait1_sumstats': sumstats_file1,
-    'trait2_name': trait2_name,
-    'trait2_sumstats': sumstats_file2,
-    'use_additional_baseline_annotation': False,
-    'w_file': '/storage/yangjianLab/chenwenhao/01_Project/01_Research/202312_gsMap/data/gsMap_dev_data/test_data/gsMap_resource/LDSC_resource/weights_hm3_no_hla/weights.',
-    # 'workdir': '/storage/yangjianLab/chenwenhao/tmp/20250408_gsmap_dev_test_tmp_workdir'})
-    'workdir': '/storage/yangjianLab/chenwenhao/projects/202312_GPS/test/20240902_gsMap_Local_Test/0922_step_by_step_use_network_resource/example/Mouse_Embryo'})
+    config = SpatialLDSCRgConfig(**{'all_chunk': None,
+                                    'chisq_max': None,
+                                    'chunk_range': None,
+                                    'n_blocks': 200,
+                                    'num_processes': 2,
+                                    'sample_name': 'E16.5_E1S1.MOSTA',
+                                    'trait1_name': trait1_name,
+                                    'trait1_sumstats': sumstats_file1,
+                                    'trait2_name': trait2_name,
+                                    'trait2_sumstats': sumstats_file2,
+                                    'use_additional_baseline_annotation': False,
+                                    'w_file': '/storage/yangjianLab/chenwenhao/01_Project/01_Research/202312_gsMap/data/gsMap_dev_data/test_data/gsMap_resource/LDSC_resource/weights_hm3_no_hla/weights.',
+                                    # 'workdir': '/storage/yangjianLab/chenwenhao/tmp/20250408_gsmap_dev_test_tmp_workdir'})
+                                    'workdir': '/storage/yangjianLab/chenwenhao/pytest-39/Mouse_Embryo0'})
     logging.basicConfig(level=logging.INFO)
     run_spatial_ldsc_rg(config)
