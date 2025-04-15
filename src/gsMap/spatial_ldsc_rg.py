@@ -22,6 +22,8 @@ from gsMap.utils import jackknife as jk
 from gsMap.utils.ldscore_regression import (Gencov, Hsq, p_z_norm)
 from gsMap.utils.regression_read import (_read_ref_ld_v2, _read_sumstats,
                                          _read_w_ld, _read_M_v2)
+from functools import partial
+from tqdm.contrib.concurrent import thread_map, process_map
 
 logger = logging.getLogger(__name__)
 
@@ -555,26 +557,36 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
 
         # Process each spot in this chunk
         chunk_size = ref_ld_spatial.shape[1]
+
+        # Create a partial function with all arguments except spot_id
+        process_spot = partial(
+            compute_local_genetic_correlation,
+            spatial_annotation=ref_ld_spatial,
+            ref_ld_baseline=ref_ld_baseline,
+            merged_sumstats=merged_sumstats,
+            w_ld=w_ld,
+            global_parameters=global_params,
+            n_blocks=n_blocks,
+            M_spatial=M_ref_ld_spatial,
+            M_baseline=M_w_ld,
+            old_weights=True,
+            twostep=None,
+        )
+
+        # Process spots in parallel using thread_map
+        spot_results_raw = process_map(
+            process_spot,
+            range(chunk_size),
+            max_workers=config.num_processes,
+            chunksize=10,  # Process spots in small batches for better load balancing
+            desc=f"Processing chunk {chunk_index}/{running_chunk_number}"
+        )
+
+        # Add spot names to results
         spot_results = []
-
-        for spot_id in tqdm(range(chunk_size), desc=f"Processing chunk {chunk_index}/{running_chunk_number}"):
-            # Calculate local genetic correlation for this spot
-            local_results = compute_local_genetic_correlation(
-                spot_id,
-                ref_ld_spatial,
-                ref_ld_baseline,
-                merged_sumstats,
-
-                w_ld,
-                global_params,
-                n_blocks,
-                M_spatial= M_ref_ld_spatial,
-                M_baseline=M_w_ld,
-            )
-
-            # Add spot name to results
-            local_results["spot"] = spatial_annotation_cnames[spot_id]
-            spot_results.append(local_results)
+        for spot_id, result in enumerate(spot_results_raw):
+            result["spot"] = spatial_annotation_cnames[spot_id]
+            spot_results.append(result)
 
         # Convert results to DataFrame for this chunk
         chunk_results = pd.DataFrame(spot_results)
