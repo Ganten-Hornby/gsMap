@@ -631,18 +631,27 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
     logger.info(f"------Spatial LDSC Genetic Correlation for {sample_name} finished!")
 
 if __name__ == "__main__":
+    sumstats_file1= '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/DIAMANTE_EUR_T2D_2022_NG.sumstats.gz'
+    sumstats_file2= '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/BMI-GIANT_2018_cojo.sumstats.gz'
+    sumstats_file1 = trait1 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/PGC3_SCZ_wave3_public_INFO80.sumstats.gz'
+    sumstats_file2=trait2 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/PGC_Bipolar_INFO80_2021_NatGenet.sumstats.gz'
+
+    trait1_name = 'T2D'
+    trait2_name = 'BMI'
+
     config = SpatialLDSCRgConfig(**{   'all_chunk': None,
     'chisq_max': None,
     'chunk_range': None,
     'n_blocks': 200,
     'num_processes': 2,
-    'sample_name': 'rg_test',
-    'trait1_name': 'IQ1',
-    'trait1_sumstats': '/storage/yangjianLab/chenwenhao/01_Project/01_Research/202312_gsMap/data/gsMap_dev_data/test_data/gsMap_example_data/GWAS/filtered_IQ_NG_2018.sumstats.gz',
-    'trait2_name': 'IQ2',
-    'trait2_sumstats': '/storage/yangjianLab/chenwenhao/01_Project/01_Research/202312_gsMap/data/gsMap_dev_data/test_data/gsMap_example_data/GWAS/filtered_IQ_NG_2018.sumstats.gz',
-    'use_additional_baseline_annotation': True,
+    'sample_name': 'E16.5_E1S1.MOSTA',
+    'trait1_name': trait1_name,
+    'trait1_sumstats': sumstats_file1,
+    'trait2_name': trait2_name,
+    'trait2_sumstats': sumstats_file2,
+    'use_additional_baseline_annotation': False,
     'w_file': '/storage/yangjianLab/chenwenhao/01_Project/01_Research/202312_gsMap/data/gsMap_dev_data/test_data/gsMap_resource/LDSC_resource/weights_hm3_no_hla/weights.',
-    'workdir': '/storage/yangjianLab/chenwenhao/tmp/20250408_gsmap_dev_test_tmp_workdir'})
+    # 'workdir': '/storage/yangjianLab/chenwenhao/tmp/20250408_gsmap_dev_test_tmp_workdir'})
+    'workdir': '/storage/yangjianLab/chenwenhao/projects/202312_GPS/test/20240902_gsMap_Local_Test/0922_step_by_step_use_network_resource/example/Mouse_Embryo'})
     logging.basicConfig(level=logging.INFO)
     run_spatial_ldsc_rg(config)

@@ -198,6 +198,12 @@ def customlatent_config(base_config):
     config.sample_name = "custom_latent_test"
     return config
 
+@pytest.fixture
+def rg_config(base_config):
+    """Create a config for genetic correlation tests"""
+    config = copy.deepcopy(base_config)
+    config.sample_name = "rg_test"
+    return config
 
 @pytest.fixture
 def biorep_config1(base_config, subsampled_h5ad_file1):
@@ -416,7 +422,7 @@ def symbolic_link_results(request, base_config):
     mappings = []
 
     if test_config_name in ["quickmode_config", "conditional_config"]:
-        # For quick mode and bioreps, link latent representations and marker scores
+        # For quick mode and conditional analysis, link latent representations and marker scores
         mappings = [
             (source_config.hdf5_with_latent_path, test_config.hdf5_with_latent_path),
             (source_config.mkscore_feather_path, test_config.mkscore_feather_path),
@@ -424,6 +430,47 @@ def symbolic_link_results(request, base_config):
     elif test_config_name == "customlatent_config":
         # For custom latent test, only link latent representations
         mappings = [(source_config.hdf5_with_latent_path, test_config.hdf5_with_latent_path)]
+    elif test_config_name == 'rg_config':
+        # Create links to shared resources
+        mappings = [
+            (source_config.hdf5_with_latent_path, test_config.hdf5_with_latent_path),
+            (source_config.mkscore_feather_path, test_config.mkscore_feather_path),
+        ]
+
+        # Create ldscore directory
+        ldscore_dir = Path(f"{test_config.workdir}/{test_config.sample_name}/generate_ldscore")
+        ldscore_dir.mkdir(parents=True, exist_ok=True)
+
+        # Link the directories without sample name in the path
+        for subdir in ['baseline', 'SNP_gene_pair', 'w_ld']:
+            source_subdir = Path(f"{source_config.workdir}/{source_config.sample_name}/generate_ldscore/{subdir}")
+            target_subdir = ldscore_dir / subdir
+
+            if source_subdir.exists() and not target_subdir.exists():
+                target_subdir.symlink_to(source_subdir, target_is_directory=True)
+                logger.info(f"Created symlink from {target_subdir} to {source_subdir}")
+
+        # Handle chunk directories - create new directories with symbolic links to files
+        source_ldscore_dir = Path(f"{source_config.workdir}/{source_config.sample_name}/generate_ldscore")
+        chunk_dirs = [d for d in source_ldscore_dir.glob(f"{source_config.sample_name}_chunk*")]
+
+        for source_chunk_dir in chunk_dirs:
+            # Extract chunk number from directory name
+            chunk_num = source_chunk_dir.name.split('_chunk')[1]
+            target_chunk_dir = ldscore_dir / f"{test_config.sample_name}_chunk{chunk_num}"
+
+            # Create the target chunk directory
+            target_chunk_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create symbolic links for each file, with new names that use the target sample name
+            for source_file in source_chunk_dir.glob(f"{source_config.sample_name}.*"):
+                file_suffix = source_file.name.replace(source_config.sample_name, '')
+                target_file = target_chunk_dir / f"{test_config.sample_name}{file_suffix}"
+
+                if not target_file.exists():
+                    target_file.symlink_to(source_file)
+                    logger.info(f"Created symlink from {target_file} to {source_file}")
+
     elif test_config_name == "biorep_config1":
         mappings = [
             (source_config.hdf5_with_latent_path, test_config.hdf5_with_latent_path),
@@ -433,7 +480,7 @@ def symbolic_link_results(request, base_config):
             ),
         ]
 
-        # Create symbolic links
+    # Create symbolic links
     for source_path, target_path in mappings:
         if source_path.exists() and not target_path.exists():
             # Create parent directory if needed
