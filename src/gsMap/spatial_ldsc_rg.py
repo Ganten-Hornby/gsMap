@@ -212,6 +212,7 @@ def estimate_global_genetic_parameters(merged_sumstats, M_estimate, n_blocks=200
 
 def compute_local_genetic_correlation(spot_id, spatial_annotation, ref_ld_baseline, merged_sumstats, w_ld,
                                       global_parameters, n_blocks, M_spatial, M_baseline, old_weights=True,
+                                      use_global_parameters=False,
                                       twostep=None, ):
     """
     Compute local genetic correlation for a single spot.
@@ -248,49 +249,67 @@ def compute_local_genetic_correlation(spot_id, spatial_annotation, ref_ld_baseli
     M_spot= np.concatenate((M_spatial[:,spot_id:spot_id+1], M_baseline), axis=1)
     # %% TODO In the origianl rg impolementation, constrain the intercept to be 1 of hsq and intercept_genecov to be 0
     try:
+        if not use_global_parameters:
         # First compute local h2 for trait 1
-        hsq1 = Hsq(
-            y=np.square(s(merged_sumstats.Z1)),
-            x=x,
-            w=s(w_ld.LD_weights),
-            N=s(merged_sumstats.N1),
-            M=M_spot,
-            n_blocks=n_blocks,
-            intercept=None,
-            twostep=twostep,
-            old_weights=old_weights
-        )
+            hsq1 = Hsq(
+                y=np.square(s(merged_sumstats.Z1)),
+                x=x,
+                w=s(w_ld.LD_weights),
+                N=s(merged_sumstats.N1),
+                M=M_spot,
+                n_blocks=n_blocks,
+                intercept=None,
+                twostep=twostep,
+                old_weights=old_weights
+            )
 
-        # Then compute local h2 for trait 2
-        hsq2 = Hsq(
-            y=np.square(s(merged_sumstats.Z2)),
-            x=x,
-            w=s(w_ld.LD_weights),
-            N=s(merged_sumstats.N2),
-            M=M_spot,
-            n_blocks=n_blocks,
-            intercept=None,
-            twostep=twostep,
-            old_weights=old_weights
-        )
+            # Then compute local h2 for trait 2
+            hsq2 = Hsq(
+                y=np.square(s(merged_sumstats.Z2)),
+                x=x,
+                w=s(w_ld.LD_weights),
+                N=s(merged_sumstats.N2),
+                M=M_spot,
+                n_blocks=n_blocks,
+                intercept=None,
+                twostep=twostep,
+                old_weights=old_weights
+            )
 
-        # Then compute local genetic covariance
-        gencov = Gencov(
-            z1=s(merged_sumstats.Z1),
-            z2=s(merged_sumstats.Z2),
-            x=x,
-            w=s(w_ld.LD_weights),
-            N1=s(merged_sumstats.N1),
-            N2=s(merged_sumstats.N2),
-            M=M_spot,
-            hsq1=hsq1.tot,
-            hsq2=hsq2.tot,
-            intercept_hsq1=hsq1.intercept,
-            intercept_hsq2=hsq2.intercept,
-            n_blocks=n_blocks,
-            intercept_gencov=None,
-            twostep=twostep,
-        )
+            # Then compute local genetic covariance
+            gencov = Gencov(
+                z1=s(merged_sumstats.Z1),
+                z2=s(merged_sumstats.Z2),
+                x=x,
+                w=s(w_ld.LD_weights),
+                N1=s(merged_sumstats.N1),
+                N2=s(merged_sumstats.N2),
+                M=M_spot,
+                hsq1=hsq1.tot,
+                hsq2=hsq2.tot,
+                intercept_hsq1=hsq1.intercept,
+                intercept_hsq2=hsq2.intercept,
+                n_blocks=n_blocks,
+                intercept_gencov=None,
+                twostep=twostep,
+            )
+        else:
+            gencov = Gencov(
+                z1=s(merged_sumstats.Z1),
+                z2=s(merged_sumstats.Z2),
+                x=x,
+                w=s(w_ld.LD_weights),
+                N1=s(merged_sumstats.N1),
+                N2=s(merged_sumstats.N2),
+                M=M_spot,
+                hsq1=global_parameters["hsq1_tot"],
+                hsq2=global_parameters["hsq2_tot"],
+                intercept_hsq1=global_parameters["hsq1_intercept"],
+                intercept_hsq2=global_parameters["hsq2_intercept"],
+                n_blocks=n_blocks,
+                intercept_gencov=None,
+                twostep=twostep,
+            )
 
         # # Calculate local genetic correlation
         # if hsq1.tot <= 0 or hsq2.tot <= 0:
@@ -571,10 +590,11 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
             M_baseline=M_w_ld,
             old_weights=True,
             twostep=None,
+            use_global_parameters=config.use_global_parameters,
         )
 
         # Process spots in parallel using thread_map
-        spot_results_raw = process_map(
+        spot_results_raw = thread_map(
             process_spot,
             range(chunk_size),
             max_workers=config.num_processes,

@@ -1175,6 +1175,7 @@ class SpatialLDSCRgConfig(ConfigWithAutoPaths):
     all_chunk: int | None = None
     ldscore_save_format: Literal["feather", "zarr", "quick_mode"] = "feather"
     chunk_range: tuple[int, int] | None = None
+    use_global_parameters: bool = False
 
     def __post_init__(self):
         super().__post_init__()
