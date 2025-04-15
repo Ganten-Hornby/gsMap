@@ -651,7 +651,7 @@ if __name__ == "__main__":
     sumstats_file1 = trait1 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/PGC3_SCZ_wave3_public_INFO80.sumstats.gz'
     sumstats_file2 = trait2 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/PGC_Bipolar_INFO80_2021_NatGenet.sumstats.gz'
 
-    trait1_name = 'SCZ_ind'
+    trait1_name = 'SCZ_global'
     trait2_name = 'BP'
 
     config = SpatialLDSCRgConfig(**{'all_chunk': None,
@@ -668,7 +668,7 @@ if __name__ == "__main__":
                                     'w_file': '/storage/yangjianLab/chenwenhao/01_Project/01_Research/202312_gsMap/data/gsMap_dev_data/test_data/gsMap_resource/LDSC_resource/weights_hm3_no_hla/weights.',
                                     # 'workdir': '/storage/yangjianLab/chenwenhao/tmp/20250408_gsmap_dev_test_tmp_workdir'})
                                     'workdir': '/storage/yangjianLab/chenwenhao/pytest-39/Mouse_Embryo0',
-                                    'use_global_parameters': False,
+                                    'use_global_parameters': True,
                                     'chunk_range': (1,1),
 
                                     })
