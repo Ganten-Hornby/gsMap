@@ -329,15 +329,15 @@ def compute_local_genetic_correlation(spot_id, spatial_annotation, ref_ld_baseli
         #
         #     local_rg_se = float(local_rg_jknife.jknife_se)
         #     local_rg_p, local_rg_z = p_z_norm(local_rg, local_rg_se)
-
+            # return [gencov_cell.coef[0], gencov_cell.coef_se[0], gencov_cell.coef[0] / gencov_cell.coef_se[0]]
         return {
-            "h1_beta": float(hsq1.tot),
-            "h1_se": float(hsq1.tot_se),
-            "h2_beta": float(hsq2.tot),
-            "h2_se": float(hsq2.tot_se),
-            "gcov_beta": float(gencov.tot),
-            "gcov_se": float(gencov.tot_se),
-            "gcov_p": float(gencov.p),
+            # "h1_beta": float(hsq1.tot),
+            # "h1_se": float(hsq1.tot_se),
+            # "h2_beta": float(hsq2.tot),
+            # "h2_se": float(hsq2.tot_se),
+            "beta": float(gencov.coef[0]),
+            "se": float(gencov.coef_se[0]),
+            "z": float(gencov.coef[0] / gencov.coef_se[0]),
             # "rg_beta": float(local_rg) if not np.isnan(local_rg) else np.nan,
             # "rg_se": float(local_rg_se) if not np.isnan(local_rg_se) else np.nan,
             # "rg_z": float(local_rg_z) if not np.isnan(local_rg_z) else np.nan,
@@ -543,6 +543,11 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
     pd.DataFrame([global_params]).to_csv(global_params_file, index=False)
     logger.info(f"Global genetic parameters saved to {global_params_file}")
 
+    # Create chunk results directory
+    chunk_results_dir = output_dir / "chunk_results"
+    chunk_results_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Created directory for saving individual chunk results: {chunk_results_dir}")
+
     # Initialize zarr handling if needed
     zarr_file, spots_name = None, None
     if config.ldscore_save_format == "zarr":
@@ -558,9 +563,8 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
     running_chunk_number = end_chunk - start_chunk + 1
 
     # Process each chunk
-    output_dict = defaultdict(list)
     trait_pair = f"{config.trait1_name}_{config.trait2_name}"
-    ref_ld_baseline_column_sum = ref_ld_baseline.sum(axis=1).values
+    chunk_file_paths = []  # Store paths to all chunk result files
 
     for chunk_index in range(start_chunk, end_chunk + 1):
         logger.info(f"Processing chunk {chunk_index} of {running_chunk_number}")
@@ -601,7 +605,6 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
             chunksize=10,  # Process spots in small batches for better load balancing
             desc=f"Processing chunk {chunk_index}/{running_chunk_number}"
         )
-
         # Add spot names to results
         spot_results = []
         for spot_id, result in enumerate(spot_results_raw):
@@ -610,37 +613,46 @@ def run_spatial_ldsc_rg(config: SpatialLDSCRgConfig):
 
         # Convert results to DataFrame for this chunk
         chunk_results = pd.DataFrame(spot_results)
-        output_dict[trait_pair].append(chunk_results)
+        chunk_results['p'] = norm.sf(chunk_results['z']) if global_params['rg'] > 0 else 1 - norm.sf(chunk_results['z'])
+
+        # Save this chunk's results to its own file
+        chunk_file_path = chunk_results_dir / f"{sample_name}_{trait_pair}_chunk{chunk_index}.csv.gz"
+        chunk_results.to_csv(chunk_file_path, index=False, compression="gzip")
+        chunk_file_paths.append(chunk_file_path)
+        logger.info(f"Saved chunk {chunk_index} results to {chunk_file_path}")
 
         # Clean up memory
-        del ref_ld_spatial, spot_results
+        del ref_ld_spatial, spot_results, chunk_results
         gc.collect()
 
-    # Combine results across chunks and save
-    for trait_pair, result_chunks in output_dict.items():
-        combined_results = pd.concat(result_chunks, axis=0, ignore_index=True)
+    # Combine all chunk results into the final output file
+    logger.info(f"Merging all chunks into the final output file...")
 
-        # Define output file path
-        output_file = Path(config.rg_save_dir) / f"{sample_name}_{trait_pair}.csv.gz"
+    # Define output file path for combined results
+    output_file = output_dir / f"{sample_name}_{trait_pair}.csv.gz"
 
-        # Ensure output directory exists
-        output_file.parent.mkdir(parents=True, exist_ok=True)
+    # Read and combine all chunk files
+    chunk_dfs = []
+    for chunk_path in chunk_file_paths:
+        chunk_df = pd.read_csv(chunk_path)
+        chunk_dfs.append(chunk_df)
 
-        # Save results
-        combined_results.to_csv(output_file, index=False, compression="gzip")
-        logger.info(f"Results saved to {output_file}")
+    combined_results = pd.concat(chunk_dfs, axis=0, ignore_index=True)
+
+    # Save combined results
+    combined_results.to_csv(output_file, index=False, compression="gzip")
+    logger.info(f"Final combined results saved to {output_file}")
 
     logger.info(f"------Spatial LDSC Genetic Correlation for {sample_name} finished!")
 
-
 if __name__ == "__main__":
-    sumstats_file1 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/DIAMANTE_EUR_T2D_2022_NG.sumstats.gz'
-    sumstats_file2 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/BMI-GIANT_2018_cojo.sumstats.gz'
+    # sumstats_file1 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/DIAMANTE_EUR_T2D_2022_NG.sumstats.gz'
+    # sumstats_file2 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/BMI-GIANT_2018_cojo.sumstats.gz'
     sumstats_file1 = trait1 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/PGC3_SCZ_wave3_public_INFO80.sumstats.gz'
     sumstats_file2 = trait2 = '/storage/yangjianLab/songliyang/GWAS_trait/LDSC/PGC_Bipolar_INFO80_2021_NatGenet.sumstats.gz'
 
-    trait1_name = 'T2D'
-    trait2_name = 'BMI'
+    trait1_name = 'SCZ_ind'
+    trait2_name = 'BP'
 
     config = SpatialLDSCRgConfig(**{'all_chunk': None,
                                     'chisq_max': None,
@@ -655,6 +667,11 @@ if __name__ == "__main__":
                                     'use_additional_baseline_annotation': False,
                                     'w_file': '/storage/yangjianLab/chenwenhao/01_Project/01_Research/202312_gsMap/data/gsMap_dev_data/test_data/gsMap_resource/LDSC_resource/weights_hm3_no_hla/weights.',
                                     # 'workdir': '/storage/yangjianLab/chenwenhao/tmp/20250408_gsmap_dev_test_tmp_workdir'})
-                                    'workdir': '/storage/yangjianLab/chenwenhao/pytest-39/Mouse_Embryo0'})
+                                    'workdir': '/storage/yangjianLab/chenwenhao/pytest-39/Mouse_Embryo0',
+                                    'use_global_parameters': False,
+                                    'chunk_range': (1,1),
+
+                                    })
+
     logging.basicConfig(level=logging.INFO)
     run_spatial_ldsc_rg(config)
